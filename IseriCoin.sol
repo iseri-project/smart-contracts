@@ -1,114 +1,131 @@
-pragma solidity ^0.4.23;
+pragma solidity ^0.5.0;
 
-interface tokenRecipient { 
-    function receiveApproval(address _from, uint256 _value, bytes _extraData) external;
+library SafeMath {
+    function add(uint a, uint b) internal pure returns (uint c) {
+        c = a + b;
+        require(c >= a);
+    }
+    function sub(uint a, uint b) internal pure returns (uint c) {
+        require(b <= a);
+        c = a - b;
+    }
+    function mul(uint a, uint b) internal pure returns (uint c) {
+        c = a * b;
+        require(a == 0 || c / a == b);
+    }
+    function div(uint a, uint b) internal pure returns (uint c) {
+        require(b > 0);
+        c = a / b;
+    }
 }
 
-contract IseriCoin
-{
-    address owner; 
-    bool public canBurn;
-    bool public canApproveCall;
-    uint8 public decimals = 6;
-    uint256 public totalSupply = 100000000000 * (10 ** uint256(decimals));
-    string public name = "IseriCoin";
-    string public symbol = "IRC";
+contract ERC20Interface {
+    function totalSupply() public view returns (uint);
+    function balanceOf(address tokenOwner) public view returns (uint balance);
+    function allowance(address tokenOwner, address spender) public view returns (uint remaining);
+    function transfer(address to, uint tokens) public returns (bool success);
+    function approve(address spender, uint tokens) public returns (bool success);
+    function transferFrom(address from, address to, uint tokens) public returns (bool success);
 
-    mapping (address => uint256) balances;
-    mapping (address => mapping(address => uint256)) allowed;
-    
-    event Transfer(address indexed _from, address indexed _to, uint256 _value);
-    event Approval(address indexed _owner, address indexed _spender, uint256 _value);
-    event Burn(address indexed _from, uint256 _value);
+    event Transfer(address indexed from, address indexed to, uint tokens);
+    event Approval(address indexed tokenOwner, address indexed spender, uint tokens);
+}
+
+contract ApproveAndCallFallBack {
+    function receiveApproval(address from, uint256 tokens, address token, bytes memory data) public;
+}
+
+contract Owned {
+    address public owner;
+    address public newOwner;
+
+    event OwnershipTransferred(address indexed _from, address indexed _to);
 
     constructor() public {
         owner = msg.sender;
-        canBurn = false;
-        canApproveCall = false;
-        balances[owner] = totalSupply;
     }
 
-    function setCanBurn(bool _val) external {
+    modifier onlyOwner {
         require(msg.sender == owner);
-        require(_val != canBurn);
-        canBurn = _val;
+        _;
     }
 
-    function setCanApproveCall(bool _val) external {
-        require(msg.sender == owner);
-        require(_val != canApproveCall);
-        canApproveCall = _val;
+    function transferOwnership(address _newOwner) public onlyOwner {
+        newOwner = _newOwner;
+    }
+    function acceptOwnership() public {
+        require(msg.sender == newOwner);
+        emit OwnershipTransferred(owner, newOwner);
+        owner = newOwner;
+        newOwner = address(0);
+    }
+}
+
+contract FixedSupplyToken is ERC20Interface, Owned {
+    using SafeMath for uint;
+
+    string public symbol;
+    string public  name;
+    uint8 public decimals;
+    uint _totalSupply;
+
+    mapping(address => uint) balances;
+    mapping(address => mapping(address => uint)) allowed;
+
+    constructor() public {
+        symbol = "IRC";
+        name = "Iseri Coin";
+        decimals = 18;
+        _totalSupply = 100000000000 * 10**uint(decimals);
+        balances[owner] = _totalSupply;
+        emit Transfer(address(0), owner, _totalSupply);
     }
 
-    function transferOwnership(address _newOwner) external {
-        require(msg.sender == owner);
-        require(_newOwner != address(0) && _newOwner != owner);
-        owner = _newOwner;
+    function totalSupply() public view returns (uint) {
+        return _totalSupply.sub(balances[address(0)]);
     }
 
-    function balanceOf(address _owner) external view returns (uint256) {
-        return balances[_owner];
+    function balanceOf(address tokenOwner) public view returns (uint balance) {
+        return balances[tokenOwner];
     }
 
-    function approve(address _spender, uint256 _value) public returns (bool) {
-        allowed[msg.sender][_spender] = _value;
-        emit Approval(msg.sender, _spender, _value);
+    function transfer(address to, uint tokens) public returns (bool success) {
+        balances[msg.sender] = balances[msg.sender].sub(tokens);
+        balances[to] = balances[to].add(tokens);
+        emit Transfer(msg.sender, to, tokens);
         return true;
     }
 
-    function allowance(address _owner, address _spender) external view returns (uint256) {
-        return allowed[_owner][_spender];
-    }
-
-    function transferFrom(address _from, address _to, uint256 _value) external returns (bool) {
-        require(_value <= allowed[_from][msg.sender]);
-        allowed[_from][msg.sender] -= _value;
-        return _transfer(_from, _to, _value);
-    }
-
-    function transfer(address _to, uint256 _value) external returns (bool) {
-        return _transfer(msg.sender, _to, _value);     
-    }
-
-    function _transfer(address _from, address _to, uint256 _value) internal returns (bool) {
-        require(_to != address(0));
-        uint256 oldFromVal = balances[_from];
-        require(_value > 0 && oldFromVal >= _value);
-        uint256 oldToVal = balances[_to];
-        uint256 newToVal = oldToVal + _value;
-        require(newToVal > oldToVal);
-        uint256 newFromVal = oldFromVal - _value;
-        balances[_from] = newFromVal;
-        balances[_to] = newToVal;
-
-        assert((oldFromVal + oldToVal) == (newFromVal + newToVal));
-        emit Transfer(_from, _to, _value);
-
+    function approve(address spender, uint tokens) public returns (bool success) {
+        allowed[msg.sender][spender] = tokens;
+        emit Approval(msg.sender, spender, tokens);
         return true;
     }
 
-    function burn(uint256 _value) 
-        external 
-        returns (bool success) 
-    {
-        require(canBurn == true);
-        uint256 oldBalance = balances[msg.sender];
-        require(oldBalance >= _value && totalSupply > _value);
-        balances[msg.sender] = oldBalance - _value;
-        totalSupply = totalSupply - _value;                                
-        emit Burn(msg.sender, _value);
+    function transferFrom(address from, address to, uint tokens) public returns (bool success) {
+        balances[from] = balances[from].sub(tokens);
+        allowed[from][msg.sender] = allowed[from][msg.sender].sub(tokens);
+        balances[to] = balances[to].add(tokens);
+        emit Transfer(from, to, tokens);
         return true;
     }
 
-    function approveAndCall(address _spender, uint256 _value, bytes _extraData)
-        external
-        returns (bool success) 
-    {
-        require(canApproveCall == true);
-        tokenRecipient spender = tokenRecipient(_spender);
-        if (approve(_spender, _value)) {
-            spender.receiveApproval(msg.sender, _value, _extraData);
-            return true;
-        }
+    function allowance(address tokenOwner, address spender) public view returns (uint remaining) {
+        return allowed[tokenOwner][spender];
+    }
+
+    function approveAndCall(address spender, uint tokens, bytes memory data) public returns (bool success) {
+        allowed[msg.sender][spender] = tokens;
+        emit Approval(msg.sender, spender, tokens);
+        ApproveAndCallFallBack(spender).receiveApproval(msg.sender, tokens, address(this), data);
+        return true;
+    }
+
+    function () external payable {
+        revert();
+    }
+
+    function transferAnyERC20Token(address tokenAddress, uint tokens) public onlyOwner returns (bool success) {
+        return ERC20Interface(tokenAddress).transfer(owner, tokens);
     }
 }
