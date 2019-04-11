@@ -42,7 +42,7 @@ contract IseriCoin is ERC20Interface{
     // Constructor With 100 000 000 000 supply, All deployed tokens sent to Main wallet
     // ------------------------------------------------------------------------
     constructor() public{
-        supply = 300000000000000000000000000000;
+        supply = 100000000000000000000000000000;
         founder = msg.sender;
         balances[founder] = supply;
     }
